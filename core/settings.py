@@ -32,6 +32,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "users.middleware.UserLanguageMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -78,3 +79,28 @@ else:
     }
 
 AUTH_USER_MODEL = "users.User"
+
+# Static files (CSS, JavaScript, Images)
+STATIC_URL = "/static/"
+STATICFILES_DIRS = []  # puoi aggiungere cartelle extra in sviluppo
+
+# Dove Django raccoglie i file statici quando fai "collectstatic"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# File upload
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+LANGUAGE_CODE = "en-us"  # lingua di default
+TIME_ZONE = "UTC"
+USE_I18N = True
+USE_TZ = True
+
+LANGUAGES = [
+    ("en", "English"),
+    ("it", "Italiano"),
+]
+
+LOCALE_PATHS = [
+    BASE_DIR / "locale",
+]

@@ -8,6 +8,12 @@ class User(AbstractUser):
         USER = "USER", "User"
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.USER)
-
-    def __str__(self):
+    categories = models.ManyToManyField("videos.Category", blank=True, related_name="users")
+    language = models.CharField(
+        max_length=5,
+        choices=[("en", "English"), ("it", "Italiano")],
+        default="en",
+    )
+    
+    def __str__(self) -> str:
         return f"{self.username} ({self.role})"
