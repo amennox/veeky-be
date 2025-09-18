@@ -181,3 +181,4 @@ The entire project runs via `docker-compose.yml` with the following services:
 ## Virtual Ambient
 python -m venv venv
 .\venv\Scripts\Activate.ps1
+ python manage.py runserver 0.0.0.0:8000 
