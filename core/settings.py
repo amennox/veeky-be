@@ -19,26 +19,27 @@ INSTALLED_APPS = [
 
     # Third party
     "rest_framework",
+    "django_q",
 
     # Local apps
     "users",
     "videos",
     "indexing",
     "configs",
-    
+
     # swagger-ui
     "drf_spectacular",
-    "drf_spectacular_sidecar",  
+    "drf_spectacular_sidecar",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.locale.LocaleMiddleware", 
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "users.middleware.UserLanguageMiddleware",  
+    "users.middleware.UserLanguageMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -95,6 +96,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # File upload
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+# Temporary upload storage
+TMP_UPLOAD_DIR = BASE_DIR / "tmp" / "uploads"
+TMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+FILE_UPLOAD_TEMP_DIR = str(TMP_UPLOAD_DIR)
 
 LANGUAGE_CODE = "en-us"  # lingua di default
 TIME_ZONE = "UTC"
@@ -120,3 +125,23 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+Q_CLUSTER = {
+    "name": "veeky",
+    "workers": 1,
+    "recycle": 500,
+    "timeout": 300,
+    "retry": 600,
+    "queue_limit": 50,
+    "bulk": 10,
+    "orm": "default",
+    "sync": os.getenv("DJANGO_Q_SYNC", "False").lower() in {"1", "true", "yes"},
+}
+
+try:
+    from core.telemetry import initialize_tracer
+    initialize_tracer()
+except Exception as telemetry_error:  # pragma: no cover - telemetry init is optional in tests
+    import logging
+    logging.getLogger("core.telemetry").warning('Failed to initialize telemetry: %s', telemetry_error)
+
