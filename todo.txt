@@ -1,1 +1,10 @@
-Fix video_file api - upload file from swagger
+Pipeline Update
+
+Replaced the stubbed task with a full pipeline covering acquisition, keyframe extraction, scene/silence segmentation, Whisper transcription, Ollama enrichment, and bulk indexing into OpenSearch, with status transitions and telemetry events wired through (indexing/tasks.py:77, indexing/tasks.py:255, indexing/tasks.py:332, indexing/tasks.py:417, indexing/tasks.py:474, indexing/tasks.py:502, indexing/tasks.py:541).
+Added shared helpers for dependency gating, prompt resolution, keyframe storage, timestamped filenames, and text chunking to keep the pipeline reusable (indexing/utils.py:19, indexing/utils.py:93, indexing/utils.py:140, indexing/utils.py:162, indexing/utils.py:191).
+Introduced an Ollama HTTP client that handles text refinement, multimodal descriptions, and embedding creation with defensive fallbacks (indexing/ollama_client.py:21, indexing/ollama_client.py:105).
+Added OpenSearch/Elasticsearch client bootstrap and bulk indexing wrapper so the pipeline can push parent/child documents in one place (indexing/opensearch_client.py:28, indexing/opensearch_client.py:59).
+Next steps:
+
+Install and configure the runtime stack (ffmpeg binary plus Python packages: ffmpeg-python, opencv-python, scikit-image, whisper, yt-dlp, requests, opensearch-py/elasticsearch) and point env vars to your Ollama and OpenSearch services.
+Run the task against a sample video to validate downloads, keyframe extraction, transcription quality, and index contents; add automated tests around the new helpers once dependencies are available.

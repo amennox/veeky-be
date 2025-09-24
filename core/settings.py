@@ -117,6 +117,11 @@ LOCALE_PATHS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.MultiPartParser',
+        'rest_framework.parsers.FormParser',
+        'rest_framework.parsers.JSONParser',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -124,6 +129,7 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "API documentation for Veeky backend",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 Q_CLUSTER = {
@@ -137,6 +143,11 @@ Q_CLUSTER = {
     "orm": "default",
     "sync": os.getenv("DJANGO_Q_SYNC", "False").lower() in {"1", "true", "yes"},
 }
+
+
+CORS_ALLOW_ALL_ORIGINS = True  # only for test
+CSRF_TRUSTED_ORIGINS = ['http://localhost:8000'] 
+
 
 try:
     from core.telemetry import initialize_tracer

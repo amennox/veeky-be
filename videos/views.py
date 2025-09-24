@@ -1,8 +1,7 @@
 from django.contrib.auth import get_user_model
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
@@ -32,20 +31,10 @@ tracer = trace.get_tracer("videos.views")
         tags=["Videos"],
         summary="Create video",
         description="Upload a video file or register a YouTube source for indexing.",
-        parameters=[
-            OpenApiParameter(
-                name='video_file',
-                type=OpenApiTypes.BINARY,
-                location=OpenApiParameter.FORM,
-                description='The video file to upload',
-                required=False,
-            ),
-        ],
         request=VideoCreateSerializer,
         responses={201: VideoDetailSerializer},
     ),
 )
-
 class VideoViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -64,8 +53,16 @@ class VideoViewSet(
                 span.set_attribute("user.role", user.role)
             span.set_attribute("videos.source_type", request.data.get("source_type", ""))
             span.set_attribute("videos.has_file", bool(request.data.get("video_file")))
+            created_video = None
             try:
                 response = super().create(request, *args, **kwargs)
+                created_video = getattr(self, "_created_video", None)
+                if response.status_code == status.HTTP_201_CREATED and created_video is not None:
+                    detail_serializer = VideoDetailSerializer(
+                        created_video,
+                        context=self.get_serializer_context(),
+                    )
+                    response.data = detail_serializer.data
                 span.set_attribute("http.status_code", response.status_code)
                 if isinstance(getattr(response, "data", None), dict):
                     video_id = response.data.get("id")
@@ -77,6 +74,9 @@ class VideoViewSet(
                 span.record_exception(exc)
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
                 raise
+            finally:
+                if hasattr(self, "_created_video"):
+                    delattr(self, "_created_video")
 
     def get_queryset(self):  # type: ignore[override]
         queryset = super().get_queryset()
@@ -105,10 +105,10 @@ class VideoViewSet(
             span.set_attribute("video.keyword_count", len(validated.get("keywords", []) or []))
             span.set_attribute("video.interval_count", len(validated.get("intervals", []) or []))
             video = serializer.save(uploader=self.request.user)
+            self._created_video = video
             span.set_attribute("video.id", video.pk)
             span.add_event(
                 "queued_for_processing",
                 {"video.id": str(video.pk)}
             )
         enqueue_video(video.id)
-

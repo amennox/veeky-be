@@ -11,6 +11,13 @@ from .models import Category, Video, VideoInterval
 User = get_user_model()
 
 
+@extend_schema_field(OpenApiTypes.BINARY)
+class BinaryFileField(serializers.FileField):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("use_url", False)
+        super().__init__(*args, **kwargs)
+
+
 class CategoryReferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
@@ -61,13 +68,12 @@ class VideoCreateSerializer(serializers.ModelSerializer):
         allow_empty=True,
     )
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
-    video_file = serializers.FileField(required=False, allow_null=True, write_only=True)
+    video_file = BinaryFileField(required=False, allow_null=True, write_only=True)
     intervals = VideoIntervalSerializer(many=True, required=False)
 
     class Meta:
         model = Video
         fields = [
-            "id",
             "name",
             "description",
             "keywords",
@@ -76,11 +82,7 @@ class VideoCreateSerializer(serializers.ModelSerializer):
             "video_file",
             "source_url",
             "intervals",
-            "status",
-            "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["id", "status", "created_at", "updated_at"]
         extra_kwargs = {
             "description": {"required": False, "allow_blank": True},
             "source_url": {"required": False, "allow_blank": True},
@@ -144,3 +146,4 @@ class VideoCreateSerializer(serializers.ModelSerializer):
                 )
 
         return video
+
