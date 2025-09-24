@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 
 class Category(models.Model):
@@ -17,6 +18,26 @@ class Category(models.Model):
 def video_upload_path(instance: "Video", filename: str) -> str:
     """Return the storage path for uploaded videos."""
     return f"videos/{instance.uploader_id}/{filename}"
+
+def validate_video_file(file):
+    if file.size > 1024 * 1024 * 500:  # 500 MB
+        raise ValidationError(
+            _('Video file size cannot exceed 500 MB')
+        )
+    
+    allowed_types = ['video/mp4', 'video/mpeg', 'video/quicktime']
+    if file.content_type not in allowed_types:
+        raise ValidationError(
+            _('Unsupported file format. Please use MP4, MPEG or MOV')
+        )
+
+video_file = models.FileField(
+    upload_to=video_upload_path,
+    validators=[validate_video_file],
+    blank=True, 
+    null=True,
+    help_text=_("Upload MP4, MPEG or MOV video files up to 500 MB")
+)
 
 
 class Video(models.Model):
