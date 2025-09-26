@@ -30,8 +30,8 @@ class OllamaClient:
         timeout: int = 120,
     ) -> None:
         self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.text_model = text_model or os.getenv("OLLAMA_TEXT_MODEL", "llama3")
-        self.embedding_model = embedding_model or os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+        self.text_model = text_model or os.getenv("OLLAMA_TEXT_MODEL", "gemma3:4b")
+        self.embedding_model = embedding_model or os.getenv("OLLAMA_EMBED_MODEL", "snowflake-arctic-embed2")
         self.vision_model = vision_model or os.getenv("OLLAMA_VISION_MODEL", self.text_model)
         self.timeout = timeout
         if requests is None:
