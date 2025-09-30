@@ -6,6 +6,7 @@ from django.utils.translation import gettext_lazy as _
 
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
+    embedding_model_path = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
         verbose_name = "Category"

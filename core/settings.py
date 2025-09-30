@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "videos",
     "indexing",
     "configs",
+    "embedding",
 
     # swagger-ui
     "drf_spectacular",

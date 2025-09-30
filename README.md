@@ -166,6 +166,7 @@ The entire project runs via `docker-compose.yml` with the following services:
 - `django_q_worker` → Worker for async tasks
 - `ollama` → AI model server
 
+Backend requires the runtime stack ffmpeg binary, libgl1-mesa-glx ,  libglib2.0-0
 ---
 
 ## ✅ Next Steps

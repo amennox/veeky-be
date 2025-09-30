@@ -1,4 +1,3 @@
-"""Video indexing pipeline tasks."""
 from __future__ import annotations
 
 import logging
@@ -15,7 +14,12 @@ from django_q.tasks import async_task
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode
 
-from videos.models import Video
+# Import new dependencies for embedding
+import torch
+import open_clip
+from PIL import Image
+
+from videos.models import Video, Category
 
 from .ollama_client import OllamaClient
 from .opensearch_client import get_client, index_documents
@@ -35,6 +39,7 @@ from .utils import (
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("indexing.tasks")
 
+# --- Constants ---
 DEFAULT_INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "videos")
 DEFAULT_KEYFRAME_INTERVAL = float(os.getenv("VIDEO_INDEX_KEYFRAME_INTERVAL", "4.0"))
 DEFAULT_SSIM_THRESHOLD = float(os.getenv("VIDEO_INDEX_SSIM_THRESHOLD", "0.90"))
@@ -43,18 +48,50 @@ DEFAULT_MAX_SEGMENT = float(os.getenv("VIDEO_INDEX_MAX_SEGMENT", "75.0"))
 DEFAULT_SILENCE_NOISE = os.getenv("VIDEO_INDEX_SILENCE_NOISE", "-35dB")
 DEFAULT_SILENCE_DURATION = float(os.getenv("VIDEO_INDEX_SILENCE_DURATION", "1.5"))
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+DEFAULT_EMBEDDING_MODEL_PATH = "embedding/models/vit_b_32/open_clip_pytorch_model.bin" # Default model path
 
 _WHISPER_MODEL: Optional[Any] = None
 
 __all__ = ("enqueue_video", "process_video")
 
+# --- Helper Functions ---
+
+def _get_embedding_model_for_category(category: Category):
+    """
+    Load the embedding model for the given category.
+    If a category-specific model path is defined, it loads that model.
+    Otherwise, it falls back to the default embedding model.
+    """
+    model_path = category.embedding_model_path
+    if not model_path or not Path(model_path).exists():
+        model_path = DEFAULT_EMBEDDING_MODEL_PATH
+
+    logger.info(f"Loading embedding model from: {model_path}")
+    
+    # Load the OpenCLIP model and preprocessing transforms
+    model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
+    
+    try:
+        # Load the saved state dictionary for the model
+        model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    except FileNotFoundError:
+        logger.error(f"Embedding model file not found at {model_path}. Falling back to a new base model.")
+        # Re-initialize the model without pre-trained weights as a fallback
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+    model.eval()  # Set the model to evaluation mode
+    return model, preprocess, device
 
 def _processing_root() -> Path:
+    # Returns the root directory for temporary processing files.
     tmp_upload = Path(getattr(settings, "TMP_UPLOAD_DIR", Path(settings.BASE_DIR) / "tmp" / "uploads"))
     return tmp_upload.parent / "processing"
 
 
 def _relative_media_path(path: Path) -> str:
+    # Converts an absolute path to a media-relative path for storage.
     media_root = Path(getattr(settings, "MEDIA_ROOT", ""))
     try:
         relative = path.relative_to(media_root)
@@ -64,6 +101,7 @@ def _relative_media_path(path: Path) -> str:
 
 
 def _get_whisper_model():
+    # Lazily loads the Whisper model for audio transcription.
     global _WHISPER_MODEL
     if _WHISPER_MODEL is None:
         whisper_module = require_dependency(
@@ -75,6 +113,7 @@ def _get_whisper_model():
 
 
 def _acquire_video(video: Video, cleanup_files: List[Path], span: Span) -> Path:
+    # Acquires the video file, either from a local upload or by downloading from a URL.
     if video.source_type == Video.SourceType.UPLOAD:
         if not video.video_file:
             raise FileNotFoundError("Uploaded video has no associated file.")
@@ -97,15 +136,47 @@ def _acquire_video(video: Video, cleanup_files: List[Path], span: Span) -> Path:
 
     ydl_options = {
         "outtmpl": str(filename_template),
-        "format": "bv*+ba/b",
+        "format": "bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
+        "retries": 3,
+        "fragment_retries": 3,
     }
 
-    with yt_dlp_module.YoutubeDL(ydl_options) as ydl:
-        info = ydl.extract_info(video.source_url, download=True)
-        downloaded_path = Path(ydl.prepare_filename(info))
+    if video.source_type == Video.SourceType.YOUTUBE:
+        ydl_options.update(
+            {
+                "noplaylist": True,
+                "geo_bypass": True,
+                "concurrent_fragment_downloads": 1,
+                "extractor_retries": 3,
+                "http_headers": {
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "DNT": "1",
+                },
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "web"],
+                    }
+                },
+            }
+        )
+
+    try:
+        with yt_dlp_module.YoutubeDL(ydl_options) as ydl:
+            info = ydl.extract_info(video.source_url, download=True)
+            downloaded_path = Path(ydl.prepare_filename(info))
+    except yt_dlp_module.utils.DownloadError as exc:  # type: ignore[attr-defined]
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+        raise RuntimeError(f"Failed to download video data: {exc}") from exc
 
     cleanup_files.append(downloaded_path)
     description = info.get("description")
@@ -119,6 +190,7 @@ def _acquire_video(video: Video, cleanup_files: List[Path], span: Span) -> Path:
 
 
 def _probe_duration(video_path: Path) -> float:
+    # Probes the video file to get its duration.
     try:
         ffmpeg_module = require_dependency(
             "ffmpeg",
@@ -145,6 +217,7 @@ def _extract_keyframes(
     keyframe_dir: Path,
     span: Span,
 ) -> tuple[List[Keyframe], float]:
+    # Extracts keyframes from the video based on structural similarity.
     cv2 = require_dependency(
         "cv2",
         "Install opencv-python to extract keyframes.",
@@ -213,6 +286,7 @@ def _extract_keyframes(
 
 
 def _detect_silence_boundaries(video_path: Path) -> List[float]:
+    # Detects silence in the audio track to segment the video.
     try:
         ffmpeg_module = require_dependency(
             "ffmpeg",
@@ -259,6 +333,7 @@ def _determine_segments(
     video_path: Path,
     span: Span,
 ) -> List[VideoSegment]:
+    # Determines video segments based on manual intervals, keyframes, or silence detection.
     manual_intervals = list(video.intervals.all())
     if manual_intervals:
         segments = [
@@ -313,6 +388,7 @@ def _extract_audio_clip(
     segment: VideoSegment,
     destination: Path,
 ) -> None:
+    # Extracts an audio clip for a specific video segment.
     stream = (
         ffmpeg_module
         .input(str(video_path), ss=max(segment.start, 0.0), t=max(segment.duration, 0.5))
@@ -323,6 +399,7 @@ def _extract_audio_clip(
 
 
 def _transcribe_audio(audio_path: Path) -> str:
+    # Transcribes an audio file to text using Whisper.
     model = _get_whisper_model()
     result = model.transcribe(str(audio_path))
     text = result.get("text", "")
@@ -336,6 +413,7 @@ def _process_segments(
     ollama: OllamaClient,
     span: Span,
 ) -> List[Dict[str, Any]]:
+    # Processes each video segment to transcribe, refine, and embed the text.
     if not segments:
         return []
 
@@ -420,12 +498,16 @@ def _build_keyframe_documents(
     ollama: OllamaClient,
     span: Span,
 ) -> List[Dict[str, Any]]:
+    # Describes and embeds keyframes, creating searchable documents.
     if not keyframes:
         return []
 
     category_name = video.category.name if video.category_id else "general"
     description_prompt = fetch_prompt("keyframe_description", category_name)
     docs: List[Dict[str, Any]] = []
+
+    # Load the correct embedding model for the video's category.
+    embedding_model, preprocess, device = _get_embedding_model_for_category(video.category)
 
     for index, keyframe in enumerate(keyframes):
         try:
@@ -434,8 +516,13 @@ def _build_keyframe_documents(
             logger.warning("Failed to describe keyframe %s: %s", keyframe.path, exc)
             keyframe.description = ""
 
+        # Generate image embedding using the category-specific or default model.
         try:
-            keyframe.embedding = list(ollama.embed_image(keyframe.path))
+            image = Image.open(keyframe.path).convert("RGB")
+            image_tensor = preprocess(image).unsqueeze(0).to(device)
+            with torch.no_grad():
+                image_features = embedding_model.encode_image(image_tensor)
+            keyframe.embedding = image_features.cpu().numpy()[0].tolist()
         except Exception as exc:
             logger.warning("Image embedding failed for %s: %s", keyframe.path, exc)
             keyframe.embedding = []
@@ -447,7 +534,7 @@ def _build_keyframe_documents(
             except Exception as exc:
                 logger.warning("Text embedding for keyframe description failed: %s", exc)
 
-        # Combine visual embedding with a textual description for richer search.
+        # Combine visual and textual information for richer search.
         doc_id = f"{video.id}-keyframe-{int(keyframe.timestamp * 1000)}"
         docs.append(
             {
@@ -472,6 +559,7 @@ def _build_keyframe_documents(
 
 
 def _build_parent_document(video: Video, duration: float) -> Dict[str, Any]:
+    # Builds the main parent document for the video in OpenSearch.
     if video.source_type == Video.SourceType.UPLOAD and video.video_file:
         try:
             source_url = video.video_file.url
@@ -500,6 +588,7 @@ def _build_parent_document(video: Video, duration: float) -> Dict[str, Any]:
 
 
 def _execute_pipeline(video: Video, span: Span) -> None:
+    # Executes the full indexing pipeline for a video.
     cleanup_files: List[Path] = []
     keyframe_dir = build_keyframe_directory(video.id, video.category.name if video.category_id else "general")
 
@@ -532,14 +621,14 @@ def _execute_pipeline(video: Video, span: Span) -> None:
 
 
 def enqueue_video(video_id: int) -> None:
-    """Submit the video for asynchronous processing."""
+    # Submits the video for asynchronous processing.
     with tracer.start_as_current_span("indexing.enqueue_video") as span:
         span.set_attribute("video.id", video_id)
         async_task(process_video, video_id)
 
 
 def process_video(video_id: int) -> None:
-    """Full video indexing pipeline task."""
+    # Main Django-Q task for the full video indexing pipeline.
     with tracer.start_as_current_span("indexing.process_video") as span:
         span.set_attribute("video.id", video_id)
         try:
