@@ -41,7 +41,7 @@ tracer = trace.get_tracer("indexing.tasks")
 
 # --- Constants ---
 DEFAULT_INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "videos")
-DEFAULT_KEYFRAME_INTERVAL = float(os.getenv("VIDEO_INDEX_KEYFRAME_INTERVAL", "4.0"))
+DEFAULT_KEYFRAME_INTERVAL = float(os.getenv("VIDEO_INDEX_KEYFRAME_INTERVAL", "4"))
 DEFAULT_SSIM_THRESHOLD = float(os.getenv("VIDEO_INDEX_SSIM_THRESHOLD", "0.90"))
 DEFAULT_MIN_SEGMENT = float(os.getenv("VIDEO_INDEX_MIN_SEGMENT", "8.0"))
 DEFAULT_MAX_SEGMENT = float(os.getenv("VIDEO_INDEX_MAX_SEGMENT", "75.0"))
@@ -641,9 +641,9 @@ def process_video(video_id: int) -> None:
 
         if video.status == Video.Status.PROCESSING:
             span.add_event("already_processing", {"video.status": video.status})
-            logger.info("Video %s is already being processed", video_id)
-            span.set_status(Status(StatusCode.OK))
-            return
+            #logger.info("Video %s is already being processed", video_id)
+            #span.set_status(Status(StatusCode.OK))
+            #return
 
         with transaction.atomic():
             previous_status = video.status
