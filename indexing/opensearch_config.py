@@ -32,7 +32,7 @@ OPENSEARCH_INDICES: Dict[str, Dict[str, Any]] = {
                 "category_name": {"type": "keyword"},
                 "upload_timestamp": {"type": "date"},
                 "processing_status": {"type": "keyword"},
-                "video_relation": {
+                "relation_type": {
                     "type": "join",
                     "relations": {"video": "content_chunk"},
                 },
@@ -46,7 +46,7 @@ OPENSEARCH_INDICES: Dict[str, Dict[str, Any]] = {
                     "method": {
                         "name": "hnsw",
                         "space_type": "cosinesimil",
-                        "engine": "nmslib",
+                        "engine": "lucene",
                         "parameters": {
                             "ef_construction": 128,
                             "m": 24,
@@ -60,7 +60,7 @@ OPENSEARCH_INDICES: Dict[str, Dict[str, Any]] = {
                     "method": {
                         "name": "hnsw",
                         "space_type": "cosinesimil",
-                        "engine": "nmslib",
+                        "engine": "lucene",
                         "parameters": {
                             "ef_construction": 128,
                             "m": 24,
