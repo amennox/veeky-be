@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import include, path
+from rest_framework.authtoken.views import obtain_auth_token
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -11,6 +12,7 @@ urlpatterns = [
     path("api/", include("users.urls")),
     path("api/", include("videos.urls")),
     path("api/", include("embedding.urls")),
+    path("api/", include("indexing.urls")),
 
     # OpenAPI schema
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
@@ -20,4 +22,6 @@ urlpatterns = [
 
     # ReDoc UI
     path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+
+    path('api/login/', obtain_auth_token, name='api_token_auth'),
 ]

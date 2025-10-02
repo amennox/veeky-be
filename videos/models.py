@@ -7,6 +7,22 @@ from django.utils.translation import gettext_lazy as _
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
     embedding_model_path = models.CharField(max_length=255, blank=True, null=True)
+    image_prompt = models.TextField(
+        max_length=2000,
+        blank=True,
+        help_text=(
+            "Prompt personalizzato per descrivere i keyframe delle immagini. "
+            "Se vuoto viene utilizzato il prompt di default."
+        ),
+    )
+    text_prompt = models.TextField(
+        max_length=2000,
+        blank=True,
+        help_text=(
+            "Prompt personalizzato per la pulizia dei testi trascritti. "
+            "Se vuoto viene utilizzato il prompt di default."
+        ),
+    )
 
     class Meta:
         verbose_name = "Category"

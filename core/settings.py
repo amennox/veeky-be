@@ -19,6 +19,8 @@ INSTALLED_APPS = [
 
     # Third party
     "rest_framework",
+    "rest_framework.authtoken",
+    "corsheaders",
     "django_q",
 
     # Local apps
@@ -36,6 +38,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware", 
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -123,6 +126,9 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.FormParser',
         'rest_framework.parsers.JSONParser',
     ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -148,6 +154,7 @@ Q_CLUSTER = {
 
 CORS_ALLOW_ALL_ORIGINS = True  # only for test
 CSRF_TRUSTED_ORIGINS = ['http://localhost:8000'] 
+
 
 
 try:

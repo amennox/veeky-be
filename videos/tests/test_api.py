@@ -14,6 +14,7 @@ from rest_framework.test import APITestCase
 
 from indexing import tasks as indexing_tasks
 from videos.models import Category, Video
+from videos.services import YouTubeMetadataError
 from core.telemetry import JsonFileSpanExporter
 
 User = get_user_model()
@@ -116,4 +117,103 @@ class VideoCreateAPITestCase(APITestCase):
 
 
 
+class VideoUpdateDeleteAPITestCase(APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username="video_admin",
+            email="video_admin@example.com",
+            password="testpass123",
+            role=User.Role.ADMIN,
+        )
+        self.client.force_authenticate(user=self.user)
+        self.category = Category.objects.create(name="Tutorials")
+        self.other_category = Category.objects.create(name="Talks")
+        self.video = Video.objects.create(
+            name="Initial name",
+            description="Initial description",
+            keywords=["keyword"],
+            category=self.category,
+            uploader=self.user,
+            source_type=Video.SourceType.YOUTUBE,
+            source_url="https://example.com",
+        )
+        self.detail_url = reverse("video-detail", args=[self.video.id])
 
+    def test_put_updates_allowed_metadata(self):
+        payload = {
+            "name": "Updated name",
+            "description": "Updated description",
+            "keywords": ["updated", "keywords"],
+            "category": self.other_category.id,
+        }
+
+        response = self.client.put(self.detail_url, data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.name, "Updated name")
+        self.assertEqual(self.video.description, "Updated description")
+        self.assertEqual(self.video.keywords, ["updated", "keywords"])
+        self.assertEqual(self.video.category, self.other_category)
+
+    def test_patch_updates_subset_of_fields(self):
+        payload = {
+            "description": "Patched description",
+        }
+
+        response = self.client.patch(self.detail_url, data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.description, "Patched description")
+
+    def test_patch_rejects_disallowed_fields(self):
+        payload = {"status": Video.Status.COMPLETED}
+
+        response = self.client.patch(self.detail_url, data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("PATCH", response.data["detail"])
+
+    def test_delete_video(self):
+        response = self.client.delete(self.detail_url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Video.objects.filter(pk=self.video.pk).exists())
+
+
+class YouTubeMetadataAPITestCase(APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username="yt_admin",
+            email="yt_admin@example.com",
+            password="testpass123",
+            role=User.Role.ADMIN,
+        )
+        self.client.force_authenticate(user=self.user)
+        self.url = reverse("video-youtube-metadata")
+
+    @patch("videos.views.fetch_youtube_metadata")
+    def test_fetch_metadata_success(self, mock_fetch):
+        mock_fetch.return_value = {
+            "original_url": "https://www.youtube.com/watch?v=test",
+            "title": "Test video",
+            "raw": {"id": "test"},
+        }
+
+        response = self.client.post(self.url, data={"url": "https://www.youtube.com/watch?v=test"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Test video")
+        mock_fetch.assert_called_once()
+
+    @patch("videos.views.fetch_youtube_metadata")
+    def test_fetch_metadata_error(self, mock_fetch):
+        mock_fetch.side_effect = YouTubeMetadataError("Video non trovato", status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(self.url, data={"url": "https://www.youtube.com/watch?v=missing"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Video non trovato", response.data["detail"])

@@ -425,8 +425,14 @@ def _process_segments(
     audio_root = _processing_root() / f"video_{video.id}"
     audio_root.mkdir(parents=True, exist_ok=True)
 
-    category_name = video.category.name if video.category_id else "general"
-    cleanup_prompt = fetch_prompt("transcript_cleanup", category_name)
+    category = video.category if video.category_id else None
+    category_name = category.name if category else "general"
+    override_cleanup_prompt = (
+        category.text_prompt.strip() if category and category.text_prompt else ""
+    )
+    cleanup_prompt = override_cleanup_prompt or fetch_prompt(
+        "transcript_cleanup", category_name
+    )
 
     try:
         for index, segment in enumerate(segments):
@@ -502,8 +508,14 @@ def _build_keyframe_documents(
     if not keyframes:
         return []
 
-    category_name = video.category.name if video.category_id else "general"
-    description_prompt = fetch_prompt("keyframe_description", category_name)
+    category = video.category if video.category_id else None
+    category_name = category.name if category else "general"
+    override_image_prompt = (
+        category.image_prompt.strip() if category and category.image_prompt else ""
+    )
+    description_prompt = override_image_prompt or fetch_prompt(
+        "keyframe_description", category_name
+    )
     docs: List[Dict[str, Any]] = []
 
     # Load the correct embedding model for the video's category.

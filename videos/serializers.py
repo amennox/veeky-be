@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -21,7 +21,7 @@ class BinaryFileField(serializers.FileField):
 class CategoryReferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ["id", "name"]
+        fields = ["id", "name", "image_prompt", "text_prompt", "embedding_model_path"]
         read_only_fields = fields
 
 
@@ -147,3 +147,85 @@ class VideoCreateSerializer(serializers.ModelSerializer):
 
         return video
 
+
+class VideoUpdateSerializer(serializers.ModelSerializer):
+    keywords = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_empty=True,
+    )
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(), required=False
+    )
+
+    class Meta:
+        model = Video
+        fields = ["name", "description", "keywords", "category"]
+        extra_kwargs = {
+            "name": {"required": False},
+        }
+
+    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        category = attrs.get("category")
+        instance: Optional[Video] = getattr(self, "instance", None)
+
+        if user is None or not user.is_authenticated:
+            raise serializers.ValidationError("Authentication required.")
+
+        target_category = category or (instance.category if instance else None)
+
+        if user.role == User.Role.ADMIN:
+            return attrs
+
+        if user.role == User.Role.EDITOR:
+            if target_category and not user.categories.filter(pk=target_category.pk).exists():
+                raise serializers.ValidationError(
+                    "Editors can only manage videos for their assigned categories."
+                )
+            return attrs
+
+        raise serializers.ValidationError("Only Admins or Editors can manage videos.")
+
+    def update(self, instance: Video, validated_data: Dict[str, Any]) -> Video:
+        for field in ["name", "description", "keywords", "category"]:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        instance.save()
+        return instance
+
+
+class YouTubeMetadataRequestSerializer(serializers.Serializer):
+    url = serializers.URLField()
+
+
+class YouTubeMetadataResponseSerializer(serializers.Serializer):
+    original_url = serializers.URLField()
+    webpage_url = serializers.CharField(required=False, allow_null=True)
+    title = serializers.CharField(required=False, allow_null=True)
+    description = serializers.CharField(required=False, allow_null=True)
+    author = serializers.CharField(required=False, allow_null=True)
+    channel_id = serializers.CharField(required=False, allow_null=True)
+    channel_url = serializers.CharField(required=False, allow_null=True)
+    duration_seconds = serializers.IntegerField(required=False, allow_null=True)
+    duration_formatted = serializers.CharField(required=False, allow_null=True)
+    keywords = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_null=True
+    )
+    thumbnail_url = serializers.CharField(required=False, allow_null=True)
+    thumbnails = serializers.JSONField(required=False, allow_null=True)
+    view_count = serializers.IntegerField(required=False, allow_null=True)
+    like_count = serializers.IntegerField(required=False, allow_null=True)
+    comment_count = serializers.IntegerField(required=False, allow_null=True)
+    categories = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_null=True
+    )
+    language = serializers.CharField(required=False, allow_null=True)
+    age_limit = serializers.IntegerField(required=False, allow_null=True)
+    upload_date = serializers.CharField(required=False, allow_null=True)
+    release_timestamp = serializers.IntegerField(required=False, allow_null=True)
+    live_status = serializers.CharField(required=False, allow_null=True)
+    is_live = serializers.BooleanField(required=False, allow_null=True)
+    availability = serializers.CharField(required=False, allow_null=True)
+    raw = serializers.JSONField()

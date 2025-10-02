@@ -7,7 +7,7 @@ User = get_user_model()
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ["id", "name"]
+        fields = ["id", "name", "image_prompt", "text_prompt", "embedding_model_path"]
 
 class UserSerializer(serializers.ModelSerializer):
     categories = CategorySerializer(many=True, read_only=True)

@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from rest_framework import mixins, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.views import APIView
+from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -8,7 +10,14 @@ from opentelemetry.trace import Status, StatusCode
 from indexing.tasks import enqueue_video
 from .models import Video
 from .permissions import IsAdminOrEditor
-from .serializers import VideoCreateSerializer, VideoDetailSerializer
+from .serializers import (
+    VideoCreateSerializer,
+    VideoDetailSerializer,
+    VideoUpdateSerializer,
+    YouTubeMetadataRequestSerializer,
+    YouTubeMetadataResponseSerializer,
+)
+from .services import YouTubeMetadataError, fetch_youtube_metadata
 
 User = get_user_model()
 tracer = trace.get_tracer("videos.views")
@@ -34,11 +43,33 @@ tracer = trace.get_tracer("videos.views")
         request=VideoCreateSerializer,
         responses={201: VideoDetailSerializer},
     ),
+    update=extend_schema(
+        tags=["Videos"],
+        summary="Update video",
+        description="Replace the editable metadata of a video (name, description, keywords, category).",
+        request=VideoUpdateSerializer,
+        responses={200: VideoDetailSerializer},
+    ),
+    partial_update=extend_schema(
+        tags=["Videos"],
+        summary="Patch video",
+        description="Aggiorna parzialmente un video modificando solo nome, descrizione, keywords o categoria.",
+        request=VideoUpdateSerializer,
+        responses={200: VideoDetailSerializer},
+    ),
+    destroy=extend_schema(
+        tags=["Videos"],
+        summary="Delete video",
+        description="Rimuove definitivamente un video e le sue risorse indicizzate.",
+        responses={204: None},
+    ),
 )
 class VideoViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Video.objects.select_related("category", "uploader").prefetch_related("intervals")
@@ -96,7 +127,11 @@ class VideoViewSet(
     def get_serializer_class(self):  # type: ignore[override]
         if self.action in {"list", "retrieve"}:
             return VideoDetailSerializer
-        return VideoCreateSerializer
+        if self.action == "create":
+            return VideoCreateSerializer
+        if self.action in {"update", "partial_update"}:
+            return VideoUpdateSerializer
+        return VideoDetailSerializer
 
     def perform_create(self, serializer):  # type: ignore[override]
         with tracer.start_as_current_span("videos.perform_create") as span:
@@ -112,3 +147,71 @@ class VideoViewSet(
                 {"video.id": str(video.pk)}
             )
         enqueue_video(video.id)
+
+    def update(self, request, *args, **kwargs):  # type: ignore[override]
+        with tracer.start_as_current_span("videos.update") as span:
+            span.set_attribute("video.id", kwargs.get("pk"))
+            response = super().update(request, *args, **kwargs)
+            response.data = VideoDetailSerializer(
+                self.get_object(), context=self.get_serializer_context()
+            ).data
+            span.set_attribute("http.status_code", response.status_code)
+            return response
+
+    def partial_update(self, request, *args, **kwargs):  # type: ignore[override]
+        allowed_fields = {"name", "description", "keywords", "category"}
+        disallowed = {key for key in request.data.keys() if key not in allowed_fields}
+        if disallowed:
+            return Response(
+                {
+                    "detail": (
+                        "I campi consentiti per PATCH sono: name, description, keywords, category."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with tracer.start_as_current_span("videos.partial_update") as span:
+            span.set_attribute("video.id", kwargs.get("pk"))
+            response = super().partial_update(request, *args, **kwargs)
+            response.data = VideoDetailSerializer(
+                self.get_object(), context=self.get_serializer_context()
+            ).data
+            span.set_attribute("http.status_code", response.status_code)
+            return response
+
+    def destroy(self, request, *args, **kwargs):  # type: ignore[override]
+        with tracer.start_as_current_span("videos.destroy") as span:
+            span.set_attribute("video.id", kwargs.get("pk"))
+            response = super().destroy(request, *args, **kwargs)
+            span.set_attribute("http.status_code", response.status_code)
+            return response
+
+
+@extend_schema(
+    tags=["Videos"],
+    summary="Fetch YouTube metadata",
+    description="Restituisce i metadati disponibili per un video YouTube senza scaricare il contenuto.",
+    request=YouTubeMetadataRequestSerializer,
+    responses={200: YouTubeMetadataResponseSerializer},
+)
+class YouTubeMetadataAPIView(APIView):
+    permission_classes = [IsAdminOrEditor]
+    parser_classes = [JSONParser]
+
+    def post(self, request, *args, **kwargs):
+        serializer = YouTubeMetadataRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        url = serializer.validated_data["url"]
+
+        with tracer.start_as_current_span("videos.youtube_metadata") as span:
+            span.set_attribute("youtube.url", url)
+            try:
+                metadata = fetch_youtube_metadata(url)
+            except YouTubeMetadataError as exc:
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                return Response({"detail": str(exc)}, status=exc.status_code)
+            span.set_status(Status(StatusCode.OK))
+
+        response_serializer = YouTubeMetadataResponseSerializer(metadata)
+        return Response(response_serializer.data)
