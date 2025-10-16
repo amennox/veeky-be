@@ -13,7 +13,7 @@ from indexing.tasks import process_video
 
 # --- IMPORTANTE ---
 # Cambia questo ID con quello del video che vuoi analizzare
-VIDEO_ID_TO_DEBUG = 1
+VIDEO_ID_TO_DEBUG = 6
 
 if __name__ == "__main__":
     print(f"--- Avvio del debug per il video ID: {VIDEO_ID_TO_DEBUG} ---")

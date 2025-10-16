@@ -653,9 +653,9 @@ def process_video(video_id: int) -> None:
 
         if video.status == Video.Status.PROCESSING:
             span.add_event("already_processing", {"video.status": video.status})
-            #logger.info("Video %s is already being processed", video_id)
-            #span.set_status(Status(StatusCode.OK))
-            #return
+            logger.info("Video %s is already being processed", video_id)
+            span.set_status(Status(StatusCode.OK))
+            return
 
         with transaction.atomic():
             previous_status = video.status

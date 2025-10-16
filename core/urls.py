@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/", include("videos.urls")),
     path("api/", include("embedding.urls")),
     path("api/", include("indexing.urls")),
+    path("api/", include("search.urls")),
 
     # OpenAPI schema
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

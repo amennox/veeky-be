@@ -183,6 +183,7 @@ Backend requires the runtime stack ffmpeg binary, libgl1-mesa-glx ,  libglib2.0-
 python -m venv venv
 .\venv\Scripts\Activate.ps1
  python manage.py runserver 0.0.0.0:8000 
+ python manage.py qcluster
 
 ## Apply migration
  python manage.py migrate

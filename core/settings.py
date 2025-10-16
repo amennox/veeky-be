@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "indexing",
     "configs",
     "embedding",
+    "search",
 
     # swagger-ui
     "drf_spectacular",
@@ -155,6 +156,10 @@ Q_CLUSTER = {
 CORS_ALLOW_ALL_ORIGINS = True  # only for test
 CSRF_TRUSTED_ORIGINS = ['http://localhost:8000'] 
 
+
+# --- Search defaults ---
+MAX_TOTAL_SEARCH_RESULTS = int(os.getenv("MAX_TOTAL_SEARCH_RESULTS", "50"))
+MAX_SEGMENTS_PER_VIDEO = int(os.getenv("MAX_SEGMENTS_PER_VIDEO", "10"))
 
 
 try:
